@@ -131,4 +131,66 @@ class HomeViewModel : ViewModel() {
         }
         _todoItems.value = updatedItems
     }
+
+    fun addNewTask(taskTitle: String) {
+        if (taskTitle.trim().isEmpty()) return
+        
+        val currentItems = _todoItems.value ?: return
+        val newTask = TodoItem.Task(
+            id = "task_${System.currentTimeMillis()}",
+            title = taskTitle.trim(),
+            isCompleted = false
+        )
+        
+        val updatedItems = currentItems + newTask
+        _todoItems.value = updatedItems
+    }
+
+    fun updateTaskTitle(taskId: String, newTitle: String) {
+        if (newTitle.trim().isEmpty()) return
+        
+        val currentItems = _todoItems.value ?: return
+        val updatedItems = currentItems.map { item ->
+            when (item) {
+                is TodoItem.Task -> {
+                    if (item.id == taskId) {
+                        item.copy(title = newTitle.trim())
+                    } else {
+                        item.copy(subtasks = item.subtasks.map { subtask ->
+                            if (subtask.id == taskId) {
+                                subtask.copy(title = newTitle.trim())
+                            } else subtask
+                        })
+                    }
+                }
+                is TodoItem.Folder -> {
+                    item.copy(tasks = item.tasks.map { task ->
+                        if (task.id == taskId) {
+                            task.copy(title = newTitle.trim())
+                        } else {
+                            task.copy(subtasks = task.subtasks.map { subtask ->
+                                if (subtask.id == taskId) {
+                                    subtask.copy(title = newTitle.trim())
+                                } else subtask
+                            })
+                        }
+                    })
+                }
+                else -> item
+            }
+        }
+        _todoItems.value = updatedItems
+    }
+
+    fun updateFolderTitle(folderId: String, newTitle: String) {
+        if (newTitle.trim().isEmpty()) return
+        
+        val currentItems = _todoItems.value ?: return
+        val updatedItems = currentItems.map { item ->
+            if (item is TodoItem.Folder && item.id == folderId) {
+                item.copy(title = newTitle.trim())
+            } else item
+        }
+        _todoItems.value = updatedItems
+    }
 }

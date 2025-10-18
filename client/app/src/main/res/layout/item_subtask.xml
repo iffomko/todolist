@@ -23,6 +23,21 @@
         android:layout_weight="1"
         android:text="Subtask Name"
         android:textSize="16sp"
-        android:textColor="@android:color/black" />
+        android:textColor="@android:color/black"
+        android:visibility="visible" />
+
+    <EditText
+        android:id="@+id/subtask_edit_text"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:text="Subtask Name"
+        android:textSize="16sp"
+        android:textColor="@android:color/black"
+        android:background="@android:color/transparent"
+        android:inputType="text"
+        android:imeOptions="actionDone"
+        android:visibility="gone"
+        style="@style/Widget.AppCompat.EditText" />
 
 </LinearLayout>

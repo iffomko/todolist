@@ -15,7 +15,10 @@ import java.util.*
 
 class TodoAdapter(
     private val onTaskClick: (String) -> Unit,
-    private val onFolderClick: (String) -> Unit
+    private val onFolderClick: (String) -> Unit,
+    private val onNewTaskAdded: (String) -> Unit,
+    private val onTaskTitleUpdated: (String, String) -> Unit,
+    private val onFolderTitleUpdated: (String, String) -> Unit
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     private var items = listOf<TodoItem>()
@@ -111,30 +114,80 @@ class TodoAdapter(
     inner class FolderViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val folderIcon: ImageView = itemView.findViewById(R.id.folder_icon)
         private val folderTitle: TextView = itemView.findViewById(R.id.folder_title)
+        private val folderEditText: android.widget.EditText = itemView.findViewById(R.id.folder_edit_text)
         private val expandArrow: ImageView = itemView.findViewById(R.id.expand_arrow)
         private val taskCount: TextView = itemView.findViewById(R.id.task_count)
 
         fun bind(folder: TodoItem.Folder) {
             folderTitle.text = folder.title
+            folderEditText.setText(folder.title)
             taskCount.text = folder.tasks.size.toString()
             taskCount.visibility = if (folder.tasks.isNotEmpty()) View.VISIBLE else View.GONE
             
             expandArrow.rotation = if (folder.isExpanded) 0f else -90f
             
+            // Switch to edit mode on long click
+            itemView.setOnLongClickListener {
+                enterEditMode()
+                true
+            }
+            
+            // Handle single click for expand/collapse
             itemView.setOnClickListener {
                 onFolderClick(folder.id)
             }
+            
+            // Handle edit text
+            folderEditText.setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) {
+                    exitEditMode(folder.id)
+                    true
+                } else false
+            }
+            
+            folderEditText.setOnFocusChangeListener { _, hasFocus ->
+                if (!hasFocus) {
+                    exitEditMode(folder.id)
+                }
+            }
+        }
+        
+        private fun enterEditMode() {
+            folderTitle.visibility = View.GONE
+            folderEditText.visibility = View.VISIBLE
+            folderEditText.requestFocus()
+            folderEditText.selectAll()
+            
+            // Show keyboard
+            val imm = itemView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+            imm.showSoftInput(folderEditText, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        }
+        
+        private fun exitEditMode(folderId: String) {
+            val newTitle = folderEditText.text.toString()
+            if (newTitle.trim().isNotEmpty()) {
+                onFolderTitleUpdated(folderId, newTitle)
+            }
+            
+            folderTitle.visibility = View.VISIBLE
+            folderEditText.visibility = View.GONE
+            
+            // Hide keyboard
+            val imm = itemView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+            imm.hideSoftInputFromWindow(folderEditText.windowToken, 0)
         }
     }
 
     inner class TaskViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val taskCheckbox: CheckBox = itemView.findViewById(R.id.task_checkbox)
         private val taskTitle: TextView = itemView.findViewById(R.id.task_title)
+        private val taskEditText: android.widget.EditText = itemView.findViewById(R.id.task_edit_text)
         private val dueDateContainer: LinearLayout = itemView.findViewById(R.id.due_date_container)
         private val dueDateText: TextView = itemView.findViewById(R.id.due_date_text)
 
         fun bind(task: TodoItem.Task) {
             taskTitle.text = task.title
+            taskEditText.setText(task.title)
             taskCheckbox.isChecked = task.isCompleted
             
             if (task.isCompleted) {
@@ -153,22 +206,71 @@ class TodoAdapter(
                 dueDateContainer.visibility = View.GONE
             }
             
+            // Switch to edit mode on long click
+            itemView.setOnLongClickListener {
+                enterEditMode()
+                true
+            }
+            
+            // Handle single click for completion toggle
+            itemView.setOnClickListener {
+                onTaskClick(task.id)
+            }
+            
+            // Handle checkbox click
             taskCheckbox.setOnClickListener {
                 onTaskClick(task.id)
             }
             
-            itemView.setOnClickListener {
-                onTaskClick(task.id)
+            // Handle edit text
+            taskEditText.setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) {
+                    exitEditMode(task.id)
+                    true
+                } else false
             }
+            
+            taskEditText.setOnFocusChangeListener { _, hasFocus ->
+                if (!hasFocus) {
+                    exitEditMode(task.id)
+                }
+            }
+        }
+        
+        private fun enterEditMode() {
+            taskTitle.visibility = View.GONE
+            taskEditText.visibility = View.VISIBLE
+            taskEditText.requestFocus()
+            taskEditText.selectAll()
+            
+            // Show keyboard
+            val imm = itemView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+            imm.showSoftInput(taskEditText, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        }
+        
+        private fun exitEditMode(taskId: String) {
+            val newTitle = taskEditText.text.toString()
+            if (newTitle.trim().isNotEmpty()) {
+                onTaskTitleUpdated(taskId, newTitle)
+            }
+            
+            taskTitle.visibility = View.VISIBLE
+            taskEditText.visibility = View.GONE
+            
+            // Hide keyboard
+            val imm = itemView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+            imm.hideSoftInputFromWindow(taskEditText.windowToken, 0)
         }
     }
 
     inner class SubtaskViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val subtaskCheckbox: CheckBox = itemView.findViewById(R.id.subtask_checkbox)
         private val subtaskTitle: TextView = itemView.findViewById(R.id.subtask_title)
+        private val subtaskEditText: android.widget.EditText = itemView.findViewById(R.id.subtask_edit_text)
 
         fun bind(subtask: TodoItem.Subtask) {
             subtaskTitle.text = subtask.title
+            subtaskEditText.setText(subtask.title)
             subtaskCheckbox.isChecked = subtask.isCompleted
             
             if (subtask.isCompleted) {
@@ -179,22 +281,96 @@ class TodoAdapter(
                 subtaskTitle.paintFlags = subtaskTitle.paintFlags and android.graphics.Paint.STRIKE_THRU_TEXT_FLAG.inv()
             }
             
+            // Switch to edit mode on long click
+            itemView.setOnLongClickListener {
+                enterEditMode()
+                true
+            }
+            
+            // Handle single click for completion toggle
+            itemView.setOnClickListener {
+                onTaskClick(subtask.id)
+            }
+            
             subtaskCheckbox.setOnClickListener {
                 onTaskClick(subtask.id)
             }
             
-            itemView.setOnClickListener {
-                onTaskClick(subtask.id)
+            // Handle edit text
+            subtaskEditText.setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) {
+                    exitEditMode(subtask.id)
+                    true
+                } else false
             }
+            
+            subtaskEditText.setOnFocusChangeListener { _, hasFocus ->
+                if (!hasFocus) {
+                    exitEditMode(subtask.id)
+                }
+            }
+        }
+        
+        private fun enterEditMode() {
+            subtaskTitle.visibility = View.GONE
+            subtaskEditText.visibility = View.VISIBLE
+            subtaskEditText.requestFocus()
+            subtaskEditText.selectAll()
+            
+            // Show keyboard
+            val imm = itemView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+            imm.showSoftInput(subtaskEditText, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        }
+        
+        private fun exitEditMode(subtaskId: String) {
+            val newTitle = subtaskEditText.text.toString()
+            if (newTitle.trim().isNotEmpty()) {
+                onTaskTitleUpdated(subtaskId, newTitle)
+            }
+            
+            subtaskTitle.visibility = View.VISIBLE
+            subtaskEditText.visibility = View.GONE
+            
+            // Hide keyboard
+            val imm = itemView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+            imm.hideSoftInputFromWindow(subtaskEditText.windowToken, 0)
         }
     }
 
     inner class NewTaskViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-        private val newTaskHint: TextView = itemView.findViewById(R.id.new_task_hint)
+        private val newTaskEditText: android.widget.EditText = itemView.findViewById(R.id.new_task_hint)
 
         fun bind() {
+            newTaskEditText.setText("")
+            newTaskEditText.hint = "Write a task..."
+            
+            newTaskEditText.setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE || 
+                    actionId == android.view.inputmethod.EditorInfo.IME_ACTION_GO) {
+                    val taskText = newTaskEditText.text.toString()
+                    if (taskText.trim().isNotEmpty()) {
+                        onNewTaskAdded(taskText)
+                        newTaskEditText.setText("")
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+            
+            newTaskEditText.setOnFocusChangeListener { _, hasFocus ->
+                if (hasFocus) {
+                    newTaskEditText.hint = ""
+                } else {
+                    newTaskEditText.hint = "Write a task..."
+                }
+            }
+            
             itemView.setOnClickListener {
-                // Handle new task creation
+                newTaskEditText.requestFocus()
+                // Show keyboard
+                val imm = itemView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                imm.showSoftInput(newTaskEditText, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
             }
         }
     }

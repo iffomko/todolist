@@ -40,6 +40,15 @@ class HomeFragment : Fragment() {
             },
             onFolderClick = { folderId ->
                 homeViewModel.toggleFolderExpansion(folderId)
+            },
+            onNewTaskAdded = { taskTitle ->
+                homeViewModel.addNewTask(taskTitle)
+            },
+            onTaskTitleUpdated = { taskId, newTitle ->
+                homeViewModel.updateTaskTitle(taskId, newTitle)
+            },
+            onFolderTitleUpdated = { folderId, newTitle ->
+                homeViewModel.updateFolderTitle(folderId, newTitle)
             }
         )
         

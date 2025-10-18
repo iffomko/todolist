@@ -27,6 +27,7 @@
         android:textStyle="italic"
         android:background="@android:color/transparent"
         android:inputType="text"
+        android:imeOptions="actionDone"
         style="@style/Widget.AppCompat.EditText" />
 
 </LinearLayout>
