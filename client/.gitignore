@@ -13,3 +13,10 @@
 .externalNativeBuild
 .cxx
 local.properties
+/.idea/migrations.xml
+/.idea/deviceManager.xml
+/.idea/buildOutputCleanup.lock
+/.idea/executionHistory.lock
+/.idea/filesHashes.bin
+/.idea/filesHashes.lock
+/.idea/resourceHashesCache.bin
