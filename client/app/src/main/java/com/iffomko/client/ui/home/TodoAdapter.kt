@@ -72,6 +72,22 @@ class TodoAdapter(
         this.itemTouchHelper = itemTouchHelper
     }
     
+    private fun canMoveBetween(fromItem: TodoItem, toItem: TodoItem): Boolean {
+        return when {
+            // Folders can only be moved between folders
+            fromItem is TodoItem.Folder && toItem is TodoItem.Folder -> true
+            
+            // Tasks can only be moved between tasks
+            fromItem is TodoItem.Task && toItem is TodoItem.Task -> true
+            
+            // Subtasks can only be moved between subtasks
+            fromItem is TodoItem.Subtask && toItem is TodoItem.Subtask -> true
+            
+            // All other combinations are not allowed
+            else -> false
+        }
+    }
+    
     fun moveItem(fromPosition: Int, toPosition: Int) {
         if (fromPosition < 0 || toPosition < 0 || fromPosition >= items.size || toPosition >= items.size) {
             return
@@ -458,6 +474,14 @@ class TodoAdapter(
             
             // Don't allow moving the "new task" item
             if (items[fromPosition].id == "new_task" || items[toPosition].id == "new_task") {
+                return false
+            }
+            
+            val fromItem = items[fromPosition]
+            val toItem = items[toPosition]
+            
+            // Check if movement is allowed between these item types
+            if (!canMoveBetween(fromItem, toItem)) {
                 return false
             }
             
