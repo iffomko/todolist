@@ -6,6 +6,7 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.iffomko.client.databinding.FragmentHomeBinding
 
@@ -49,6 +50,9 @@ class HomeFragment : Fragment() {
             },
             onFolderTitleUpdated = { folderId, newTitle ->
                 homeViewModel.updateFolderTitle(folderId, newTitle)
+            },
+            onItemMoved = { fromPosition, toPosition ->
+                homeViewModel.moveItem(fromPosition, toPosition)
             }
         )
         
@@ -56,6 +60,11 @@ class HomeFragment : Fragment() {
             layoutManager = LinearLayoutManager(context)
             adapter = todoAdapter
         }
+        
+        // Setup drag and drop
+        val itemTouchHelper = ItemTouchHelper(todoAdapter.itemTouchHelperCallback)
+        itemTouchHelper.attachToRecyclerView(binding.recyclerView)
+        todoAdapter.setItemTouchHelper(itemTouchHelper)
     }
     
     private fun observeViewModel() {

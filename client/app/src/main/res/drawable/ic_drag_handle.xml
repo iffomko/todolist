@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    
+    <!-- Drag handle dots -->
+    <path
+        android:fillColor="#666666"
+        android:pathData="M6,6h2v2H6V6zM10,6h2v2h-2V6zM14,6h2v2h-2V6zM6,10h2v2H6V10zM10,10h2v2h-2V10zM14,10h2v2h-2V10zM6,14h2v2H6V14zM10,14h2v2h-2V14zM14,14h2v2h-2V14zM6,18h2v2H6V18zM10,18h2v2h-2V18zM14,18h2v2h-2V18z" />
+</vector>

@@ -193,4 +193,24 @@ class HomeViewModel : ViewModel() {
         }
         _todoItems.value = updatedItems
     }
+    
+    fun moveItem(fromPosition: Int, toPosition: Int) {
+        val currentItems = _todoItems.value ?: return
+        
+        // Validate positions
+        if (fromPosition < 0 || toPosition < 0 || fromPosition >= currentItems.size || toPosition >= currentItems.size) {
+            return
+        }
+        
+        // Convert to mutable list for easier manipulation
+        val mutableItems = currentItems.toMutableList()
+        
+        // Remove the item from the original position
+        val movedItem = mutableItems.removeAt(fromPosition)
+        
+        // Insert it at the new position
+        mutableItems.add(toPosition, movedItem)
+        
+        _todoItems.value = mutableItems
+    }
 }

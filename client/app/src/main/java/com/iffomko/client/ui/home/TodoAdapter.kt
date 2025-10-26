@@ -1,12 +1,14 @@
 package com.iffomko.client.ui.home
 
 import android.view.LayoutInflater
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.CheckBox
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 import com.iffomko.client.R
 import com.iffomko.client.data.TodoItem
@@ -18,11 +20,13 @@ class TodoAdapter(
     private val onFolderClick: (String) -> Unit,
     private val onNewTaskAdded: (String) -> Unit,
     private val onTaskTitleUpdated: (String, String) -> Unit,
-    private val onFolderTitleUpdated: (String, String) -> Unit
+    private val onFolderTitleUpdated: (String, String) -> Unit,
+    private val onItemMoved: (Int, Int) -> Unit
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     private var items = listOf<TodoItem>()
     private val dateFormat = SimpleDateFormat("MMM dd", Locale.getDefault())
+    private var itemTouchHelper: ItemTouchHelper? = null
 
     companion object {
         private const val TYPE_FOLDER = 0
@@ -62,6 +66,22 @@ class TodoAdapter(
         
         items = flatList
         notifyDataSetChanged()
+    }
+    
+    fun setItemTouchHelper(itemTouchHelper: ItemTouchHelper) {
+        this.itemTouchHelper = itemTouchHelper
+    }
+    
+    fun moveItem(fromPosition: Int, toPosition: Int) {
+        if (fromPosition < 0 || toPosition < 0 || fromPosition >= items.size || toPosition >= items.size) {
+            return
+        }
+        
+        val mutableItems = items.toMutableList()
+        val item = mutableItems.removeAt(fromPosition)
+        mutableItems.add(toPosition, item)
+        items = mutableItems
+        notifyItemMoved(fromPosition, toPosition)
     }
 
     override fun getItemViewType(position: Int): Int {
@@ -117,6 +137,7 @@ class TodoAdapter(
         private val folderEditText: android.widget.EditText = itemView.findViewById(R.id.folder_edit_text)
         private val expandArrow: ImageView = itemView.findViewById(R.id.expand_arrow)
         private val taskCount: TextView = itemView.findViewById(R.id.task_count)
+        private val dragHandle: ImageView = itemView.findViewById(R.id.drag_handle)
 
         fun bind(folder: TodoItem.Folder) {
             folderTitle.text = folder.title
@@ -149,6 +170,18 @@ class TodoAdapter(
                 if (!hasFocus) {
                     exitEditMode(folder.id)
                 }
+            }
+            
+            // Handle drag handle touch to start drag
+            dragHandle.setOnTouchListener { _, event ->
+                if (event.action == MotionEvent.ACTION_DOWN) {
+                    try {
+                        itemTouchHelper?.startDrag(this@FolderViewHolder)
+                    } catch (e: Exception) {
+                        // Ignore drag start errors
+                    }
+                    true
+                } else false
             }
         }
         
@@ -184,6 +217,7 @@ class TodoAdapter(
         private val taskEditText: android.widget.EditText = itemView.findViewById(R.id.task_edit_text)
         private val dueDateContainer: LinearLayout = itemView.findViewById(R.id.due_date_container)
         private val dueDateText: TextView = itemView.findViewById(R.id.due_date_text)
+        private val dragHandle: ImageView = itemView.findViewById(R.id.drag_handle)
 
         fun bind(task: TodoItem.Task) {
             taskTitle.text = task.title
@@ -235,6 +269,18 @@ class TodoAdapter(
                     exitEditMode(task.id)
                 }
             }
+            
+            // Handle drag handle touch to start drag
+            dragHandle.setOnTouchListener { _, event ->
+                if (event.action == MotionEvent.ACTION_DOWN) {
+                    try {
+                        itemTouchHelper?.startDrag(this@TaskViewHolder)
+                    } catch (e: Exception) {
+                        // Ignore drag start errors
+                    }
+                    true
+                } else false
+            }
         }
         
         private fun enterEditMode() {
@@ -267,6 +313,7 @@ class TodoAdapter(
         private val subtaskCheckbox: CheckBox = itemView.findViewById(R.id.subtask_checkbox)
         private val subtaskTitle: TextView = itemView.findViewById(R.id.subtask_title)
         private val subtaskEditText: android.widget.EditText = itemView.findViewById(R.id.subtask_edit_text)
+        private val dragHandle: ImageView = itemView.findViewById(R.id.drag_handle)
 
         fun bind(subtask: TodoItem.Subtask) {
             subtaskTitle.text = subtask.title
@@ -308,6 +355,18 @@ class TodoAdapter(
                 if (!hasFocus) {
                     exitEditMode(subtask.id)
                 }
+            }
+            
+            // Handle drag handle touch to start drag
+            dragHandle.setOnTouchListener { _, event ->
+                if (event.action == MotionEvent.ACTION_DOWN) {
+                    try {
+                        itemTouchHelper?.startDrag(this@SubtaskViewHolder)
+                    } catch (e: Exception) {
+                        // Ignore drag start errors
+                    }
+                    true
+                } else false
             }
         }
         
@@ -372,6 +431,50 @@ class TodoAdapter(
                 val imm = itemView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
                 imm.showSoftInput(newTaskEditText, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
             }
+        }
+    }
+
+    // ItemTouchHelper callback for drag and drop
+    val itemTouchHelperCallback = object : ItemTouchHelper.SimpleCallback(
+        ItemTouchHelper.UP or ItemTouchHelper.DOWN,
+        0
+    ) {
+        override fun onMove(
+            recyclerView: RecyclerView,
+            viewHolder: RecyclerView.ViewHolder,
+            target: RecyclerView.ViewHolder
+        ): Boolean {
+            val fromPosition = viewHolder.adapterPosition
+            val toPosition = target.adapterPosition
+            
+            // Check if positions are valid
+            if (fromPosition == RecyclerView.NO_POSITION || toPosition == RecyclerView.NO_POSITION) {
+                return false
+            }
+            
+            if (fromPosition >= items.size || toPosition >= items.size) {
+                return false
+            }
+            
+            // Don't allow moving the "new task" item
+            if (items[fromPosition].id == "new_task" || items[toPosition].id == "new_task") {
+                return false
+            }
+            
+            // Update the adapter's internal list
+            moveItem(fromPosition, toPosition)
+            
+            // Notify the ViewModel about the move
+            onItemMoved(fromPosition, toPosition)
+            return true
+        }
+
+        override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
+            // Not implemented for swipe
+        }
+
+        override fun isLongPressDragEnabled(): Boolean {
+            return false // We'll handle drag through the drag handle
         }
     }
 }
