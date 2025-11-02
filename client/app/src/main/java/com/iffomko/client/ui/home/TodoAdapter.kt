@@ -58,11 +58,6 @@ class TodoAdapter(
     fun updateItems(newItems: List<TodoItem>) {
         val flatList = mutableListOf<DisplayItem>()
         
-        // Check if there's a temporary new_folder element - add it at the beginning
-        temporaryItems["new_folder"]?.let { tempItem ->
-            flatList.add(tempItem)
-        }
-        
         newItems.forEach { item ->
             when (item) {
                 is TodoItem.Folder -> {
@@ -93,6 +88,11 @@ class TodoAdapter(
                     // Other items are not expected in the new structure
                 }
             }
+        }
+        
+        // Check if there's a temporary new_folder element - add it at the end
+        temporaryItems["new_folder"]?.let { tempItem ->
+            flatList.add(tempItem)
         }
         
         displayItems = flatList
@@ -257,7 +257,7 @@ class TodoAdapter(
         }
     }
     
-    // Method to insert new folder editing element at the beginning of the list
+    // Method to insert new folder editing element at the end of the list
     fun insertNewFolderElement() {
         // Check if already exists
         if (temporaryItems.containsKey("new_folder")) {
@@ -276,9 +276,10 @@ class TodoAdapter(
         
         // Store in temporary items
         temporaryItems["new_folder"] = displayItem
-        currentItems.add(0, displayItem)
+        val insertIndex = currentItems.size
+        currentItems.add(insertIndex, displayItem)
         displayItems = currentItems
-        notifyItemInserted(0)
+        notifyItemInserted(insertIndex)
     }
 
     override fun getItemViewType(position: Int): Int {
