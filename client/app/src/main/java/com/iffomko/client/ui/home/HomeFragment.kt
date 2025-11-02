@@ -6,7 +6,6 @@ import android.view.View
 import android.view.ViewGroup
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.ViewModelProvider
-import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.iffomko.client.databinding.FragmentHomeBinding
 
@@ -42,8 +41,11 @@ class HomeFragment : Fragment() {
             onFolderClick = { folderId ->
                 homeViewModel.toggleFolderExpansion(folderId)
             },
-            onNewTaskAdded = { taskTitle ->
-                homeViewModel.addNewTask(taskTitle)
+            onNewTaskAdded = { taskTitle, folderId ->
+                homeViewModel.addNewTask(taskTitle, folderId)
+            },
+            onNewSubtaskAdded = { subtaskTitle, folderId, taskId ->
+                homeViewModel.addNewSubtask(subtaskTitle, folderId, taskId)
             },
             onTaskTitleUpdated = { taskId, newTitle ->
                 homeViewModel.updateTaskTitle(taskId, newTitle)
@@ -51,8 +53,20 @@ class HomeFragment : Fragment() {
             onFolderTitleUpdated = { folderId, newTitle ->
                 homeViewModel.updateFolderTitle(folderId, newTitle)
             },
-            onItemMoved = { fromPosition, toPosition ->
-                homeViewModel.moveItem(fromPosition, toPosition)
+            onItemDeleted = { itemId, parentFolderId, parentTaskId ->
+                homeViewModel.deleteItem(itemId, parentFolderId, parentTaskId)
+            },
+            onAddTaskRequested = { folderId ->
+                todoAdapter.insertNewTaskElement(folderId)
+            },
+            onAddSubtaskRequested = { folderId, taskId ->
+                todoAdapter.insertNewSubtaskElement(folderId, taskId)
+            },
+            onRefreshRequested = {
+                // Refresh adapter with current ViewModel data
+                homeViewModel.todoItems.value?.let { items ->
+                    todoAdapter.updateItems(items)
+                }
             }
         )
         
@@ -60,11 +74,6 @@ class HomeFragment : Fragment() {
             layoutManager = LinearLayoutManager(context)
             adapter = todoAdapter
         }
-        
-        // Setup drag and drop
-        val itemTouchHelper = ItemTouchHelper(todoAdapter.itemTouchHelperCallback)
-        itemTouchHelper.attachToRecyclerView(binding.recyclerView)
-        todoAdapter.setItemTouchHelper(itemTouchHelper)
     }
     
     private fun observeViewModel() {

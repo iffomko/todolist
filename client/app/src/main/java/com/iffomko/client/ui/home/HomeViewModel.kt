@@ -132,7 +132,7 @@ class HomeViewModel : ViewModel() {
         _todoItems.value = updatedItems
     }
 
-    fun addNewTask(taskTitle: String) {
+    fun addNewTask(taskTitle: String, folderId: String) {
         if (taskTitle.trim().isEmpty()) return
         
         val currentItems = _todoItems.value ?: return
@@ -142,7 +142,33 @@ class HomeViewModel : ViewModel() {
             isCompleted = false
         )
         
-        val updatedItems = currentItems + newTask
+        val updatedItems = currentItems.map { item ->
+            if (item is TodoItem.Folder && item.id == folderId) {
+                item.copy(tasks = item.tasks + newTask)
+            } else item
+        }
+        _todoItems.value = updatedItems
+    }
+    
+    fun addNewSubtask(subtaskTitle: String, folderId: String, taskId: String) {
+        if (subtaskTitle.trim().isEmpty()) return
+        
+        val currentItems = _todoItems.value ?: return
+        val newSubtask = TodoItem.Subtask(
+            id = "subtask_${System.currentTimeMillis()}",
+            title = subtaskTitle.trim(),
+            isCompleted = false
+        )
+        
+        val updatedItems = currentItems.map { item ->
+            if (item is TodoItem.Folder && item.id == folderId) {
+                item.copy(tasks = item.tasks.map { task ->
+                    if (task.id == taskId) {
+                        task.copy(subtasks = task.subtasks + newSubtask)
+                    } else task
+                })
+            } else item
+        }
         _todoItems.value = updatedItems
     }
 
@@ -194,23 +220,35 @@ class HomeViewModel : ViewModel() {
         _todoItems.value = updatedItems
     }
     
-    fun moveItem(fromPosition: Int, toPosition: Int) {
+    fun deleteItem(itemId: String, parentFolderId: String?, parentTaskId: String?) {
         val currentItems = _todoItems.value ?: return
         
-        // Validate positions
-        if (fromPosition < 0 || toPosition < 0 || fromPosition >= currentItems.size || toPosition >= currentItems.size) {
-            return
+        val updatedItems = when {
+            parentFolderId == null && parentTaskId == null -> {
+                currentItems.filterNot { it is TodoItem.Folder && it.id == itemId }
+            }
+            parentFolderId != null && parentTaskId == null -> {
+                currentItems.map { item ->
+                    if (item is TodoItem.Folder && item.id == parentFolderId) {
+                        item.copy(tasks = item.tasks.filterNot { it.id == itemId })
+                    } else item
+                }
+            }
+            parentFolderId != null && parentTaskId != null -> {
+                currentItems.map { item ->
+                    if (item is TodoItem.Folder && item.id == parentFolderId) {
+                        item.copy(tasks = item.tasks.map { task ->
+                            if (task.id == parentTaskId) {
+                                task.copy(subtasks = task.subtasks.filterNot { it.id == itemId })
+                            } else task
+                        })
+                    } else item
+                }
+            }
+            else -> currentItems
         }
         
-        // Convert to mutable list for easier manipulation
-        val mutableItems = currentItems.toMutableList()
-        
-        // Remove the item from the original position
-        val movedItem = mutableItems.removeAt(fromPosition)
-        
-        // Insert it at the new position
-        mutableItems.add(toPosition, movedItem)
-        
-        _todoItems.value = mutableItems
+        _todoItems.value = updatedItems
     }
+    
 }

@@ -1,110 +1,222 @@
 package com.iffomko.client.ui.home
 
+import android.view.Gravity
 import android.view.LayoutInflater
-import android.view.MotionEvent
+import android.view.MenuItem
 import android.view.View
 import android.view.ViewGroup
 import android.widget.CheckBox
-import android.widget.ImageView
 import android.widget.LinearLayout
+import android.widget.PopupMenu
 import android.widget.TextView
-import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
 import com.iffomko.client.R
 import com.iffomko.client.data.TodoItem
 import java.text.SimpleDateFormat
 import java.util.*
 
+// Data class to hold item with its hierarchy level and parent information
+private data class DisplayItem(
+    val item: TodoItem,
+    val level: Int, // 0 = folder, 1 = task, 2 = subtask, 3 = new_task, 4 = new_subtask
+    val parentFolderId: String? = null, // For tasks and subtasks
+    val parentTaskId: String? = null // For subtasks only
+)
+
 class TodoAdapter(
     private val onTaskClick: (String) -> Unit,
     private val onFolderClick: (String) -> Unit,
-    private val onNewTaskAdded: (String) -> Unit,
+    private val onNewTaskAdded: (String, String) -> Unit, // taskTitle, folderId
+    private val onNewSubtaskAdded: (String, String, String) -> Unit, // subtaskTitle, folderId, taskId
     private val onTaskTitleUpdated: (String, String) -> Unit,
     private val onFolderTitleUpdated: (String, String) -> Unit,
-    private val onItemMoved: (Int, Int) -> Unit
+    private val onItemDeleted: (String, String?, String?) -> Unit, // itemId, parentFolderId, parentTaskId
+    private val onAddTaskRequested: (String) -> Unit, // folderId - request to add new task editing element
+    private val onAddSubtaskRequested: (String, String) -> Unit, // folderId, taskId - request to add new subtask editing element
+    private val onRefreshRequested: () -> Unit = {} // Callback to refresh list when temporary item is removed without adding
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
-    private var items = listOf<TodoItem>()
+    private var displayItems = listOf<DisplayItem>()
     private val dateFormat = SimpleDateFormat("MMM dd", Locale.getDefault())
-    private var itemTouchHelper: ItemTouchHelper? = null
+    
+    // Store temporary editing elements (new_task, new_subtask) that are not in ViewModel
+    private val temporaryItems = mutableMapOf<String, DisplayItem>() // key: item.id
 
     companion object {
         private const val TYPE_FOLDER = 0
         private const val TYPE_TASK = 1
         private const val TYPE_SUBTASK = 2
         private const val TYPE_NEW_TASK = 3
+        private const val TYPE_NEW_SUBTASK = 4
+        
+        private const val MENU_DELETE = 1
+        private const val MENU_ADD = 2
     }
 
     fun updateItems(newItems: List<TodoItem>) {
-        val flatList = mutableListOf<TodoItem>()
+        val flatList = mutableListOf<DisplayItem>()
         
         newItems.forEach { item ->
             when (item) {
                 is TodoItem.Folder -> {
-                    flatList.add(item)
+                    flatList.add(DisplayItem(item, 0))
                     if (item.isExpanded) {
                         item.tasks.forEach { task ->
-                            flatList.add(task)
+                            flatList.add(DisplayItem(task, 1, parentFolderId = item.id))
                             task.subtasks.forEach { subtask ->
-                                flatList.add(subtask)
+                                flatList.add(DisplayItem(subtask, 2, parentFolderId = item.id, parentTaskId = task.id))
                             }
+                            // Check if there's a temporary new_subtask element for this task
+                            val tempSubtaskId = "new_subtask_${task.id}"
+                            temporaryItems[tempSubtaskId]?.let { tempItem ->
+                                flatList.add(tempItem)
+                            }
+                        }
+                        // Check if there's a temporary new_task element for this folder
+                        val tempTaskId = "new_task_${item.id}"
+                        temporaryItems[tempTaskId]?.let { tempItem ->
+                            flatList.add(tempItem)
                         }
                     }
                 }
                 is TodoItem.Task -> {
-                    flatList.add(item)
-                    item.subtasks.forEach { subtask ->
-                        flatList.add(subtask)
-                    }
+                    // Tasks outside folders are not supported in new hierarchy
                 }
-                else -> flatList.add(item)
+                else -> {
+                    // Other items are not expected in the new structure
+                }
             }
         }
         
-        // Add new task item at the end
-        flatList.add(TodoItem.Task("new_task", "Write a task...", false))
-        
-        items = flatList
+        displayItems = flatList
         notifyDataSetChanged()
     }
     
-    fun setItemTouchHelper(itemTouchHelper: ItemTouchHelper) {
-        this.itemTouchHelper = itemTouchHelper
-    }
-    
-    private fun canMoveBetween(fromItem: TodoItem, toItem: TodoItem): Boolean {
-        return when {
-            // Folders can only be moved between folders
-            fromItem is TodoItem.Folder && toItem is TodoItem.Folder -> true
-            
-            // Tasks can only be moved between tasks
-            fromItem is TodoItem.Task && toItem is TodoItem.Task -> true
-            
-            // Subtasks can only be moved between subtasks
-            fromItem is TodoItem.Subtask && toItem is TodoItem.Subtask -> true
-            
-            // All other combinations are not allowed
-            else -> false
-        }
-    }
-    
-    fun moveItem(fromPosition: Int, toPosition: Int) {
-        if (fromPosition < 0 || toPosition < 0 || fromPosition >= items.size || toPosition >= items.size) {
+    // Method to insert new task editing element after folder
+    fun insertNewTaskElement(folderId: String) {
+        // Check if already exists
+        if (temporaryItems.containsKey("new_task_$folderId")) {
             return
         }
         
-        val mutableItems = items.toMutableList()
-        val item = mutableItems.removeAt(fromPosition)
-        mutableItems.add(toPosition, item)
-        items = mutableItems
-        notifyItemMoved(fromPosition, toPosition)
+        val currentItems = displayItems.toMutableList()
+        var insertIndex = -1
+        var folderFound = false
+        var folderExpanded = false
+        
+        // Find the folder and calculate position after all its tasks
+        currentItems.forEachIndexed { index, displayItem ->
+            if (displayItem.item is TodoItem.Folder && displayItem.item.id == folderId) {
+                folderFound = true
+                folderExpanded = (displayItem.item as TodoItem.Folder).isExpanded
+                
+                if (!folderExpanded) {
+                    // Folder is collapsed, can't add task
+                    return
+                }
+                
+                // Find the position after all tasks of this folder
+                var lastTaskIndex = index
+                for (i in index + 1 until currentItems.size) {
+                    when {
+                        currentItems[i].item is TodoItem.Folder -> {
+                            // Next folder found, insert before it
+                            insertIndex = i
+                            break
+                        }
+                        currentItems[i].item is TodoItem.Task && currentItems[i].parentFolderId == folderId -> {
+                            lastTaskIndex = i
+                        }
+                        currentItems[i].item is TodoItem.Subtask && currentItems[i].parentFolderId == folderId -> {
+                            // Continue - subtasks belong to tasks
+                            lastTaskIndex = i
+                        }
+                    }
+                }
+                
+                if (insertIndex == -1) {
+                    // Insert after the last task or after the folder if no tasks
+                    insertIndex = lastTaskIndex + 1
+                }
+            }
+        }
+        
+        if (!folderFound || !folderExpanded) {
+            return
+        }
+        
+        if (insertIndex >= 0 && insertIndex <= currentItems.size) {
+            val newTaskItem = TodoItem.Task("new_task_$folderId", "Введите название", false)
+            val displayItem = DisplayItem(newTaskItem, 3, parentFolderId = folderId)
+            // Store in temporary items
+            temporaryItems["new_task_$folderId"] = displayItem
+            currentItems.add(insertIndex, displayItem)
+            displayItems = currentItems
+            notifyItemInserted(insertIndex)
+        }
+    }
+    
+    // Method to insert new subtask editing element after task
+    fun insertNewSubtaskElement(folderId: String, taskId: String) {
+        // Check if already exists
+        if (temporaryItems.containsKey("new_subtask_$taskId")) {
+            return
+        }
+        
+        val currentItems = displayItems.toMutableList()
+        var insertIndex = -1
+        
+        // Find the task and calculate position after all its subtasks
+        currentItems.forEachIndexed { index, displayItem ->
+            if (displayItem.item is TodoItem.Task && displayItem.item.id == taskId && displayItem.parentFolderId == folderId) {
+                // Find the position after all subtasks of this task
+                var lastSubtaskIndex = index
+                for (i in index + 1 until currentItems.size) {
+                    when {
+                        currentItems[i].item is TodoItem.Subtask && currentItems[i].parentTaskId == taskId -> {
+                            lastSubtaskIndex = i
+                        }
+                        currentItems[i].item is TodoItem.Task || currentItems[i].item is TodoItem.Folder -> {
+                            // Next task or folder found, insert before it
+                            insertIndex = i
+                            break
+                        }
+                    }
+                }
+                
+                if (insertIndex == -1) {
+                    // Insert after the last subtask or after the task if no subtasks
+                    insertIndex = lastSubtaskIndex + 1
+                }
+            }
+        }
+        
+        if (insertIndex >= 0 && insertIndex <= currentItems.size) {
+            val newSubtaskItem = TodoItem.Subtask("new_subtask_$taskId", "Введите название", false)
+            val displayItem = DisplayItem(newSubtaskItem, 4, parentFolderId = folderId, parentTaskId = taskId)
+            // Store in temporary items
+            temporaryItems["new_subtask_$taskId"] = displayItem
+            currentItems.add(insertIndex, displayItem)
+            displayItems = currentItems
+            notifyItemInserted(insertIndex)
+        }
     }
 
     override fun getItemViewType(position: Int): Int {
-        return when (items[position]) {
-            is TodoItem.Folder -> TYPE_FOLDER
-            is TodoItem.Task -> if (items[position].id == "new_task") TYPE_NEW_TASK else TYPE_TASK
-            is TodoItem.Subtask -> TYPE_SUBTASK
+        // Safety check to prevent crashes if list changes
+        if (position < 0 || position >= displayItems.size) {
+            return TYPE_TASK // Default fallback
+        }
+        
+        return when {
+            displayItems[position].item is TodoItem.Folder -> TYPE_FOLDER
+            displayItems[position].item is TodoItem.Task -> {
+                if (displayItems[position].item.id.startsWith("new_task_")) TYPE_NEW_TASK else TYPE_TASK
+            }
+            displayItems[position].item is TodoItem.Subtask -> {
+                if (displayItems[position].item.id.startsWith("new_subtask_")) TYPE_NEW_SUBTASK else TYPE_SUBTASK
+            }
+            else -> throw IllegalArgumentException("Unknown item type")
         }
     }
 
@@ -130,32 +242,88 @@ class TodoAdapter(
                     .inflate(R.layout.item_new_task, parent, false)
                 NewTaskViewHolder(view)
             }
+            TYPE_NEW_SUBTASK -> {
+                val view = LayoutInflater.from(parent.context)
+                    .inflate(R.layout.item_new_task, parent, false)
+                NewSubtaskViewHolder(view)
+            }
             else -> throw IllegalArgumentException("Unknown view type: $viewType")
         }
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
-        val item = items[position]
+        // Safety check to prevent crashes if list changes during binding
+        if (position < 0 || position >= displayItems.size) {
+            return
+        }
+        
+        val displayItem = displayItems[position]
+        val item = displayItem.item
         
         when (holder) {
-            is FolderViewHolder -> holder.bind(item as TodoItem.Folder)
-            is TaskViewHolder -> holder.bind(item as TodoItem.Task)
-            is SubtaskViewHolder -> holder.bind(item as TodoItem.Subtask)
-            is NewTaskViewHolder -> holder.bind()
+            is FolderViewHolder -> {
+                holder.bind(item as TodoItem.Folder, displayItem.level, displayItem.parentFolderId, position)
+            }
+            is TaskViewHolder -> {
+                holder.bind(item as TodoItem.Task, displayItem.level, displayItem.parentFolderId, position)
+            }
+            is SubtaskViewHolder -> {
+                holder.bind(item as TodoItem.Subtask, displayItem.level, displayItem.parentFolderId, displayItem.parentTaskId, position)
+            }
+            is NewTaskViewHolder -> {
+                holder.bind(displayItem.level, displayItem.parentFolderId ?: "", position)
+            }
+            is NewSubtaskViewHolder -> {
+                holder.bind(displayItem.level, displayItem.parentFolderId ?: "", displayItem.parentTaskId ?: "", position)
+            }
         }
     }
 
-    override fun getItemCount() = items.size
+    override fun getItemCount() = displayItems.size
+
+    private fun showPopupMenu(view: View, folderId: String?, taskId: String?, parentFolderId: String?, isSubtask: Boolean) {
+        val popup = PopupMenu(view.context, view, Gravity.END)
+        popup.menu.add(0, MENU_DELETE, 0, "Удалить элемент")
+        if (!isSubtask) {
+            popup.menu.add(0, MENU_ADD, 0, "Добавить элемент")
+        }
+        
+        popup.setOnMenuItemClickListener { item: MenuItem ->
+            when (item.itemId) {
+                MENU_DELETE -> {
+                    onItemDeleted(
+                        if (folderId != null) folderId else taskId!!,
+                        parentFolderId,
+                        if (isSubtask) taskId else null
+                    )
+                    true
+                }
+                MENU_ADD -> {
+                    if (folderId != null) {
+                        // Add task to folder
+                        onAddTaskRequested(folderId)
+                    } else if (taskId != null && parentFolderId != null) {
+                        // Add subtask to task
+                        onAddSubtaskRequested(parentFolderId, taskId)
+                    }
+                    true
+                }
+                else -> false
+            }
+        }
+        
+        popup.show()
+    }
 
     inner class FolderViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-        private val folderIcon: ImageView = itemView.findViewById(R.id.folder_icon)
+        private val folderIcon: android.widget.ImageView = itemView.findViewById(R.id.folder_icon)
         private val folderTitle: TextView = itemView.findViewById(R.id.folder_title)
         private val folderEditText: android.widget.EditText = itemView.findViewById(R.id.folder_edit_text)
-        private val expandArrow: ImageView = itemView.findViewById(R.id.expand_arrow)
+        private val expandArrow: android.widget.ImageView = itemView.findViewById(R.id.expand_arrow)
         private val taskCount: TextView = itemView.findViewById(R.id.task_count)
-        private val dragHandle: ImageView = itemView.findViewById(R.id.drag_handle)
+        private val moreButton: android.widget.ImageView = itemView.findViewById(R.id.more_button)
 
-        fun bind(folder: TodoItem.Folder) {
+        fun bind(folder: TodoItem.Folder, level: Int, parentFolderId: String?, position: Int) {
             folderTitle.text = folder.title
             folderEditText.setText(folder.title)
             taskCount.text = folder.tasks.size.toString()
@@ -188,16 +356,9 @@ class TodoAdapter(
                 }
             }
             
-            // Handle drag handle touch to start drag
-            dragHandle.setOnTouchListener { _, event ->
-                if (event.action == MotionEvent.ACTION_DOWN) {
-                    try {
-                        itemTouchHelper?.startDrag(this@FolderViewHolder)
-                    } catch (e: Exception) {
-                        // Ignore drag start errors
-                    }
-                    true
-                } else false
+            // Handle more button - show popup menu
+            moreButton.setOnClickListener {
+                showPopupMenu(moreButton, folder.id, null, null, false)
             }
         }
         
@@ -233,9 +394,23 @@ class TodoAdapter(
         private val taskEditText: android.widget.EditText = itemView.findViewById(R.id.task_edit_text)
         private val dueDateContainer: LinearLayout = itemView.findViewById(R.id.due_date_container)
         private val dueDateText: TextView = itemView.findViewById(R.id.due_date_text)
-        private val dragHandle: ImageView = itemView.findViewById(R.id.drag_handle)
+        private val moreButton: android.widget.ImageView = itemView.findViewById(R.id.more_button)
 
-        fun bind(task: TodoItem.Task) {
+        fun bind(task: TodoItem.Task, level: Int, parentFolderId: String?, position: Int) {
+            // Set padding based on level (level 1 = task, should have indentation)
+            val rootLayout = itemView as LinearLayout
+            val paddingStart = when (level) {
+                1 -> itemView.context.resources.getDimensionPixelSize(R.dimen.task_indent)
+                else -> itemView.context.resources.getDimensionPixelSize(R.dimen.default_padding)
+            }
+            val defaultPadding = itemView.context.resources.getDimensionPixelSize(R.dimen.default_padding)
+            rootLayout.setPadding(
+                paddingStart,
+                defaultPadding,
+                defaultPadding,
+                defaultPadding
+            )
+            
             taskTitle.text = task.title
             taskEditText.setText(task.title)
             taskCheckbox.isChecked = task.isCompleted
@@ -286,16 +461,9 @@ class TodoAdapter(
                 }
             }
             
-            // Handle drag handle touch to start drag
-            dragHandle.setOnTouchListener { _, event ->
-                if (event.action == MotionEvent.ACTION_DOWN) {
-                    try {
-                        itemTouchHelper?.startDrag(this@TaskViewHolder)
-                    } catch (e: Exception) {
-                        // Ignore drag start errors
-                    }
-                    true
-                } else false
+            // Handle more button - show popup menu
+            moreButton.setOnClickListener {
+                showPopupMenu(moreButton, null, task.id, parentFolderId, false)
             }
         }
         
@@ -329,9 +497,23 @@ class TodoAdapter(
         private val subtaskCheckbox: CheckBox = itemView.findViewById(R.id.subtask_checkbox)
         private val subtaskTitle: TextView = itemView.findViewById(R.id.subtask_title)
         private val subtaskEditText: android.widget.EditText = itemView.findViewById(R.id.subtask_edit_text)
-        private val dragHandle: ImageView = itemView.findViewById(R.id.drag_handle)
+        private val moreButton: android.widget.ImageView = itemView.findViewById(R.id.more_button)
 
-        fun bind(subtask: TodoItem.Subtask) {
+        fun bind(subtask: TodoItem.Subtask, level: Int, parentFolderId: String?, parentTaskId: String?, position: Int) {
+            // Set padding based on level (level 2 = subtask, should have more indentation)
+            val rootLayout = itemView as LinearLayout
+            val paddingStart = when (level) {
+                2 -> itemView.context.resources.getDimensionPixelSize(R.dimen.subtask_indent)
+                else -> itemView.context.resources.getDimensionPixelSize(R.dimen.default_padding)
+            }
+            val defaultPadding = itemView.context.resources.getDimensionPixelSize(R.dimen.default_padding)
+            rootLayout.setPadding(
+                paddingStart,
+                defaultPadding,
+                defaultPadding,
+                defaultPadding
+            )
+            
             subtaskTitle.text = subtask.title
             subtaskEditText.setText(subtask.title)
             subtaskCheckbox.isChecked = subtask.isCompleted
@@ -373,16 +555,9 @@ class TodoAdapter(
                 }
             }
             
-            // Handle drag handle touch to start drag
-            dragHandle.setOnTouchListener { _, event ->
-                if (event.action == MotionEvent.ACTION_DOWN) {
-                    try {
-                        itemTouchHelper?.startDrag(this@SubtaskViewHolder)
-                    } catch (e: Exception) {
-                        // Ignore drag start errors
-                    }
-                    true
-                } else false
+            // Handle more button - show popup menu (only delete for subtasks)
+            moreButton.setOnClickListener {
+                showPopupMenu(moreButton, null, subtask.id, parentFolderId, true)
             }
         }
         
@@ -414,18 +589,61 @@ class TodoAdapter(
 
     inner class NewTaskViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         private val newTaskEditText: android.widget.EditText = itemView.findViewById(R.id.new_task_hint)
+        private var isProcessing = false // Flag to prevent duplicate submissions
 
-        fun bind() {
+        fun bind(level: Int, folderId: String, position: Int) {
+            isProcessing = false // Reset flag when binding
+            // New task should have same indentation as regular tasks (level 1)
+            val rootLayout = itemView as LinearLayout
+            val paddingStart = itemView.context.resources.getDimensionPixelSize(R.dimen.task_indent)
+            val defaultPadding = itemView.context.resources.getDimensionPixelSize(R.dimen.default_padding)
+            rootLayout.setPadding(
+                paddingStart,
+                defaultPadding,
+                defaultPadding,
+                defaultPadding
+            )
+            
             newTaskEditText.setText("")
-            newTaskEditText.hint = "Write a task..."
+            newTaskEditText.hint = "Введите название"
+            
+            // Auto focus when this item is shown
+            newTaskEditText.post {
+                newTaskEditText.requestFocus()
+                val imm = itemView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                imm.showSoftInput(newTaskEditText, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+            }
             
             newTaskEditText.setOnEditorActionListener { _, actionId, _ ->
                 if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE || 
                     actionId == android.view.inputmethod.EditorInfo.IME_ACTION_GO) {
+                    if (isProcessing) {
+                        return@setOnEditorActionListener true // Already processing
+                    }
+                    
+                    isProcessing = true
+                    
+                    // Hide keyboard first
+                    val imm = itemView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                    imm.hideSoftInputFromWindow(newTaskEditText.windowToken, 0)
+                    
+                    // Clear focus to prevent onFocusChangeListener from firing
+                    newTaskEditText.clearFocus()
+                    
                     val taskText = newTaskEditText.text.toString()
-                    if (taskText.trim().isNotEmpty()) {
-                        onNewTaskAdded(taskText)
-                        newTaskEditText.setText("")
+                    val tempKey = "new_task_$folderId"
+                    
+                    // Remove temporary item before updating ViewModel
+                    temporaryItems.remove(tempKey)
+                    
+                    // Post to next frame to ensure RecyclerView is ready
+                    itemView.post {
+                        if (taskText.trim().isNotEmpty()) {
+                            onNewTaskAdded(taskText.trim(), folderId)
+                        } else {
+                            // If empty, trigger refresh to remove the editing element
+                            onRefreshRequested()
+                        }
                     }
                     true
                 } else {
@@ -434,71 +652,114 @@ class TodoAdapter(
             }
             
             newTaskEditText.setOnFocusChangeListener { _, hasFocus ->
-                if (hasFocus) {
-                    newTaskEditText.hint = ""
-                } else {
-                    newTaskEditText.hint = "Write a task..."
+                if (!hasFocus && !isProcessing) {
+                    // Only process if not already processing (to avoid duplicate calls)
+                    isProcessing = true
+                    
+                    val taskText = newTaskEditText.text.toString()
+                    val tempKey = "new_task_$folderId"
+                    
+                    // Post to next frame to avoid conflicts with RecyclerView updates
+                    itemView.post {
+                        // Remove temporary item - updateItems will handle the UI update
+                        temporaryItems.remove(tempKey)
+                        if (taskText.trim().isNotEmpty()) {
+                            onNewTaskAdded(taskText.trim(), folderId)
+                        } else {
+                            // If empty, trigger refresh to remove the editing element
+                            onRefreshRequested()
+                        }
+                    }
                 }
-            }
-            
-            itemView.setOnClickListener {
-                newTaskEditText.requestFocus()
-                // Show keyboard
-                val imm = itemView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
-                imm.showSoftInput(newTaskEditText, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
             }
         }
     }
+    
+    inner class NewSubtaskViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        private val newTaskEditText: android.widget.EditText = itemView.findViewById(R.id.new_task_hint)
+        private var isProcessing = false // Flag to prevent duplicate submissions
 
-    // ItemTouchHelper callback for drag and drop
-    val itemTouchHelperCallback = object : ItemTouchHelper.SimpleCallback(
-        ItemTouchHelper.UP or ItemTouchHelper.DOWN,
-        0
-    ) {
-        override fun onMove(
-            recyclerView: RecyclerView,
-            viewHolder: RecyclerView.ViewHolder,
-            target: RecyclerView.ViewHolder
-        ): Boolean {
-            val fromPosition = viewHolder.adapterPosition
-            val toPosition = target.adapterPosition
+        fun bind(level: Int, folderId: String, taskId: String, position: Int) {
+            isProcessing = false // Reset flag when binding
+            // New subtask should have same indentation as regular subtasks (level 2)
+            val rootLayout = itemView as LinearLayout
+            val paddingStart = itemView.context.resources.getDimensionPixelSize(R.dimen.subtask_indent)
+            val defaultPadding = itemView.context.resources.getDimensionPixelSize(R.dimen.default_padding)
+            rootLayout.setPadding(
+                paddingStart,
+                defaultPadding,
+                defaultPadding,
+                defaultPadding
+            )
             
-            // Check if positions are valid
-            if (fromPosition == RecyclerView.NO_POSITION || toPosition == RecyclerView.NO_POSITION) {
-                return false
+            newTaskEditText.setText("")
+            newTaskEditText.hint = "Введите название"
+            
+            // Auto focus when this item is shown
+            newTaskEditText.post {
+                newTaskEditText.requestFocus()
+                val imm = itemView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                imm.showSoftInput(newTaskEditText, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
             }
             
-            if (fromPosition >= items.size || toPosition >= items.size) {
-                return false
+            newTaskEditText.setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE || 
+                    actionId == android.view.inputmethod.EditorInfo.IME_ACTION_GO) {
+                    if (isProcessing) {
+                        return@setOnEditorActionListener true // Already processing
+                    }
+                    
+                    isProcessing = true
+                    
+                    // Hide keyboard first
+                    val imm = itemView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                    imm.hideSoftInputFromWindow(newTaskEditText.windowToken, 0)
+                    
+                    // Clear focus to prevent onFocusChangeListener from firing
+                    newTaskEditText.clearFocus()
+                    
+                    val subtaskText = newTaskEditText.text.toString()
+                    val tempKey = "new_subtask_$taskId"
+                    
+                    // Remove temporary item before updating ViewModel
+                    temporaryItems.remove(tempKey)
+                    
+                    // Post to next frame to ensure RecyclerView is ready
+                    itemView.post {
+                        if (subtaskText.trim().isNotEmpty()) {
+                            onNewSubtaskAdded(subtaskText.trim(), folderId, taskId)
+                        } else {
+                            // If empty, trigger refresh to remove the editing element
+                            onRefreshRequested()
+                        }
+                    }
+                    true
+                } else {
+                    false
+                }
             }
             
-            // Don't allow moving the "new task" item
-            if (items[fromPosition].id == "new_task" || items[toPosition].id == "new_task") {
-                return false
+            newTaskEditText.setOnFocusChangeListener { _, hasFocus ->
+                if (!hasFocus && !isProcessing) {
+                    // Only process if not already processing (to avoid duplicate calls)
+                    isProcessing = true
+                    
+                    val subtaskText = newTaskEditText.text.toString()
+                    val tempKey = "new_subtask_$taskId"
+                    
+                    // Post to next frame to avoid conflicts with RecyclerView updates
+                    itemView.post {
+                        // Remove temporary item - updateItems will handle the UI update
+                        temporaryItems.remove(tempKey)
+                        if (subtaskText.trim().isNotEmpty()) {
+                            onNewSubtaskAdded(subtaskText.trim(), folderId, taskId)
+                        } else {
+                            // If empty, trigger refresh to remove the editing element
+                            onRefreshRequested()
+                        }
+                    }
+                }
             }
-            
-            val fromItem = items[fromPosition]
-            val toItem = items[toPosition]
-            
-            // Check if movement is allowed between these item types
-            if (!canMoveBetween(fromItem, toItem)) {
-                return false
-            }
-            
-            // Update the adapter's internal list
-            moveItem(fromPosition, toPosition)
-            
-            // Notify the ViewModel about the move
-            onItemMoved(fromPosition, toPosition)
-            return true
-        }
-
-        override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
-            // Not implemented for swipe
-        }
-
-        override fun isLongPressDragEnabled(): Boolean {
-            return false // We'll handle drag through the drag handle
         }
     }
 }
