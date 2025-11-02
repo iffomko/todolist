@@ -13,8 +13,5 @@ class MainActivity : AppCompatActivity() {
 
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-
-        // Remove toolbar and drawer setup since we only show the todo list
-        // The fragment will be displayed directly
     }
 }

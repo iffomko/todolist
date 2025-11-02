@@ -1,12 +1,13 @@
 package com.iffomko.client.ui.home
 
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.ViewModel
 import com.iffomko.client.data.TodoItem
 import java.util.Date
 
-class HomeViewModel : ViewModel() {
+class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _todoItems = MutableLiveData<List<TodoItem>>()
     val todoItems: LiveData<List<TodoItem>> = _todoItems
@@ -41,7 +42,7 @@ class HomeViewModel : ViewModel() {
                         id = "task_cleaning",
                         title = "Cleaning",
                         isCompleted = false,
-                        dueDate = Date(System.currentTimeMillis() + 2 * 24 * 60 * 60 * 1000), // 2 days from now
+                        dueDate = Date(System.currentTimeMillis() + 2 * 24 * 60 * 60 * 1000),
                         subtasks = listOf(
                             TodoItem.Subtask(
                                 id = "subtask_declutter",
@@ -90,34 +91,23 @@ class HomeViewModel : ViewModel() {
 
     fun toggleTaskCompletion(taskId: String) {
         val currentItems = _todoItems.value ?: return
+        
         val updatedItems = currentItems.map { item ->
-            when (item) {
-                is TodoItem.Task -> {
-                    if (item.id == taskId) {
-                        item.copy(isCompleted = !item.isCompleted)
-                    } else {
-                        item.copy(subtasks = item.subtasks.map { subtask ->
-                            if (subtask.id == taskId) {
-                                subtask.copy(isCompleted = !subtask.isCompleted)
-                            } else subtask
-                        })
-                    }
-                }
-                is TodoItem.Folder -> {
-                    item.copy(tasks = item.tasks.map { task ->
-                        if (task.id == taskId) {
-                            task.copy(isCompleted = !task.isCompleted)
-                        } else {
+            if (item is TodoItem.Folder) {
+                item.copy(tasks = item.tasks.map { task ->
+                    when {
+                        task.id == taskId -> task.copy(isCompleted = !task.isCompleted)
+                        task.subtasks.any { it.id == taskId } -> {
                             task.copy(subtasks = task.subtasks.map { subtask ->
                                 if (subtask.id == taskId) {
                                     subtask.copy(isCompleted = !subtask.isCompleted)
                                 } else subtask
                             })
                         }
-                    })
-                }
-                else -> item
-            }
+                        else -> task
+                    }
+                })
+            } else item
         }
         _todoItems.value = updatedItems
     }
@@ -136,6 +126,7 @@ class HomeViewModel : ViewModel() {
         if (taskTitle.trim().isEmpty()) return
         
         val currentItems = _todoItems.value ?: return
+        
         val newTask = TodoItem.Task(
             id = "task_${System.currentTimeMillis()}",
             title = taskTitle.trim(),
@@ -154,6 +145,7 @@ class HomeViewModel : ViewModel() {
         if (subtaskTitle.trim().isEmpty()) return
         
         val currentItems = _todoItems.value ?: return
+        
         val newSubtask = TodoItem.Subtask(
             id = "subtask_${System.currentTimeMillis()}",
             title = subtaskTitle.trim(),
@@ -175,14 +167,15 @@ class HomeViewModel : ViewModel() {
     fun addNewFolder(folderTitle: String) {
         if (folderTitle.trim().isEmpty()) return
         
-        val currentItems = _todoItems.value ?: return
         val newFolder = TodoItem.Folder(
             id = "folder_${System.currentTimeMillis()}",
             title = folderTitle.trim(),
+            isCompleted = false,
             isExpanded = false,
             tasks = emptyList()
         )
         
+        val currentItems = _todoItems.value ?: emptyList()
         _todoItems.value = currentItems + newFolder
     }
 
@@ -190,34 +183,23 @@ class HomeViewModel : ViewModel() {
         if (newTitle.trim().isEmpty()) return
         
         val currentItems = _todoItems.value ?: return
+        
         val updatedItems = currentItems.map { item ->
-            when (item) {
-                is TodoItem.Task -> {
-                    if (item.id == taskId) {
-                        item.copy(title = newTitle.trim())
-                    } else {
-                        item.copy(subtasks = item.subtasks.map { subtask ->
-                            if (subtask.id == taskId) {
-                                subtask.copy(title = newTitle.trim())
-                            } else subtask
-                        })
-                    }
-                }
-                is TodoItem.Folder -> {
-                    item.copy(tasks = item.tasks.map { task ->
-                        if (task.id == taskId) {
-                            task.copy(title = newTitle.trim())
-                        } else {
+            if (item is TodoItem.Folder) {
+                item.copy(tasks = item.tasks.map { task ->
+                    when {
+                        task.id == taskId -> task.copy(title = newTitle.trim())
+                        task.subtasks.any { it.id == taskId } -> {
                             task.copy(subtasks = task.subtasks.map { subtask ->
                                 if (subtask.id == taskId) {
                                     subtask.copy(title = newTitle.trim())
                                 } else subtask
                             })
                         }
-                    })
-                }
-                else -> item
-            }
+                        else -> task
+                    }
+                })
+            } else item
         }
         _todoItems.value = updatedItems
     }
@@ -226,6 +208,7 @@ class HomeViewModel : ViewModel() {
         if (newTitle.trim().isEmpty()) return
         
         val currentItems = _todoItems.value ?: return
+        
         val updatedItems = currentItems.map { item ->
             if (item is TodoItem.Folder && item.id == folderId) {
                 item.copy(title = newTitle.trim())
@@ -264,5 +247,4 @@ class HomeViewModel : ViewModel() {
         
         _todoItems.value = updatedItems
     }
-    
 }

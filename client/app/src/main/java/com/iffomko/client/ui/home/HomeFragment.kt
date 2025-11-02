@@ -22,7 +22,7 @@ class HomeFragment : Fragment() {
         container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View {
-        homeViewModel = ViewModelProvider(this)[HomeViewModel::class.java]
+        homeViewModel = ViewModelProvider(this, ViewModelProvider.AndroidViewModelFactory.getInstance(requireActivity().application))[HomeViewModel::class.java]
         
         _binding = FragmentHomeBinding.inflate(inflater, container, false)
         val root: View = binding.root
@@ -73,7 +73,6 @@ class HomeFragment : Fragment() {
                 todoAdapter.insertNewSubtaskElement(folderId, taskId)
             },
             onRefreshRequested = {
-                // Refresh adapter with current ViewModel data
                 homeViewModel.todoItems.value?.let { items ->
                     todoAdapter.updateItems(items)
                 }
