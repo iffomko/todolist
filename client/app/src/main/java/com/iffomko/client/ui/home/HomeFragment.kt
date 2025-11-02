@@ -29,8 +29,15 @@ class HomeFragment : Fragment() {
         
         setupRecyclerView()
         observeViewModel()
+        setupFab()
         
         return root
+    }
+    
+    private fun setupFab() {
+        binding.fabAddFolder.setOnClickListener {
+            todoAdapter.insertNewFolderElement()
+        }
     }
     
     private fun setupRecyclerView() {
@@ -46,6 +53,9 @@ class HomeFragment : Fragment() {
             },
             onNewSubtaskAdded = { subtaskTitle, folderId, taskId ->
                 homeViewModel.addNewSubtask(subtaskTitle, folderId, taskId)
+            },
+            onNewFolderAdded = { folderTitle ->
+                homeViewModel.addNewFolder(folderTitle)
             },
             onTaskTitleUpdated = { taskId, newTitle ->
                 homeViewModel.updateTaskTitle(taskId, newTitle)

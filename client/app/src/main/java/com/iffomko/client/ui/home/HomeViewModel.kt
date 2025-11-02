@@ -171,6 +171,20 @@ class HomeViewModel : ViewModel() {
         }
         _todoItems.value = updatedItems
     }
+    
+    fun addNewFolder(folderTitle: String) {
+        if (folderTitle.trim().isEmpty()) return
+        
+        val currentItems = _todoItems.value ?: return
+        val newFolder = TodoItem.Folder(
+            id = "folder_${System.currentTimeMillis()}",
+            title = folderTitle.trim(),
+            isExpanded = false,
+            tasks = emptyList()
+        )
+        
+        _todoItems.value = currentItems + newFolder
+    }
 
     fun updateTaskTitle(taskId: String, newTitle: String) {
         if (newTitle.trim().isEmpty()) return

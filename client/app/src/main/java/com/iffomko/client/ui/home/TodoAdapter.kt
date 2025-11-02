@@ -28,6 +28,7 @@ class TodoAdapter(
     private val onFolderClick: (String) -> Unit,
     private val onNewTaskAdded: (String, String) -> Unit, // taskTitle, folderId
     private val onNewSubtaskAdded: (String, String, String) -> Unit, // subtaskTitle, folderId, taskId
+    private val onNewFolderAdded: (String) -> Unit, // folderTitle
     private val onTaskTitleUpdated: (String, String) -> Unit,
     private val onFolderTitleUpdated: (String, String) -> Unit,
     private val onItemDeleted: (String, String?, String?) -> Unit, // itemId, parentFolderId, parentTaskId
@@ -48,6 +49,7 @@ class TodoAdapter(
         private const val TYPE_SUBTASK = 2
         private const val TYPE_NEW_TASK = 3
         private const val TYPE_NEW_SUBTASK = 4
+        private const val TYPE_NEW_FOLDER = 5
         
         private const val MENU_DELETE = 1
         private const val MENU_ADD = 2
@@ -55,6 +57,11 @@ class TodoAdapter(
 
     fun updateItems(newItems: List<TodoItem>) {
         val flatList = mutableListOf<DisplayItem>()
+        
+        // Check if there's a temporary new_folder element - add it at the beginning
+        temporaryItems["new_folder"]?.let { tempItem ->
+            flatList.add(tempItem)
+        }
         
         newItems.forEach { item ->
             when (item) {
@@ -100,21 +107,42 @@ class TodoAdapter(
         }
         
         val currentItems = displayItems.toMutableList()
-        var insertIndex = -1
         var folderFound = false
         var folderExpanded = false
         
-        // Find the folder and calculate position after all its tasks
+        // Find the folder and check if it's expanded
         currentItems.forEachIndexed { index, displayItem ->
             if (displayItem.item is TodoItem.Folder && displayItem.item.id == folderId) {
                 folderFound = true
                 folderExpanded = (displayItem.item as TodoItem.Folder).isExpanded
-                
-                if (!folderExpanded) {
-                    // Folder is collapsed, can't add task
-                    return
-                }
-                
+            }
+        }
+        
+        if (!folderFound) {
+            return
+        }
+        
+        // If folder is collapsed, expand it first
+        if (!folderExpanded) {
+            onFolderClick(folderId)
+            // Wait for the folder to expand, then add the element
+            // Use postDelayed to give ViewModel time to update
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                insertNewTaskElementInternal(folderId)
+            }, 100) // Small delay to allow ViewModel to update
+            return
+        }
+        
+        insertNewTaskElementInternal(folderId)
+    }
+    
+    private fun insertNewTaskElementInternal(folderId: String) {
+        val currentItems = displayItems.toMutableList()
+        var insertIndex = -1
+        
+        // Find the folder and calculate position after all its tasks
+        currentItems.forEachIndexed { index, displayItem ->
+            if (displayItem.item is TodoItem.Folder && displayItem.item.id == folderId) {
                 // Find the position after all tasks of this folder
                 var lastTaskIndex = index
                 for (i in index + 1 until currentItems.size) {
@@ -141,10 +169,6 @@ class TodoAdapter(
             }
         }
         
-        if (!folderFound || !folderExpanded) {
-            return
-        }
-        
         if (insertIndex >= 0 && insertIndex <= currentItems.size) {
             val newTaskItem = TodoItem.Task("new_task_$folderId", "Введите название", false)
             val displayItem = DisplayItem(newTaskItem, 3, parentFolderId = folderId)
@@ -163,6 +187,37 @@ class TodoAdapter(
             return
         }
         
+        val currentItems = displayItems.toMutableList()
+        var folderFound = false
+        var folderExpanded = false
+        
+        // Find the folder and check if it's expanded
+        currentItems.forEachIndexed { index, displayItem ->
+            if (displayItem.item is TodoItem.Folder && displayItem.item.id == folderId) {
+                folderFound = true
+                folderExpanded = (displayItem.item as TodoItem.Folder).isExpanded
+            }
+        }
+        
+        if (!folderFound) {
+            return
+        }
+        
+        // If folder is collapsed, expand it first
+        if (!folderExpanded) {
+            onFolderClick(folderId)
+            // Wait for the folder to expand, then add the element
+            // Use postDelayed to give ViewModel time to update
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                insertNewSubtaskElementInternal(folderId, taskId)
+            }, 100) // Small delay to allow ViewModel to update
+            return
+        }
+        
+        insertNewSubtaskElementInternal(folderId, taskId)
+    }
+    
+    private fun insertNewSubtaskElementInternal(folderId: String, taskId: String) {
         val currentItems = displayItems.toMutableList()
         var insertIndex = -1
         
@@ -201,6 +256,30 @@ class TodoAdapter(
             notifyItemInserted(insertIndex)
         }
     }
+    
+    // Method to insert new folder editing element at the beginning of the list
+    fun insertNewFolderElement() {
+        // Check if already exists
+        if (temporaryItems.containsKey("new_folder")) {
+            return
+        }
+        
+        val currentItems = displayItems.toMutableList()
+        val newFolderItem = TodoItem.Folder(
+            id = "new_folder",
+            title = "Введите название",
+            isCompleted = false,
+            isExpanded = true,
+            tasks = emptyList()
+        )
+        val displayItem = DisplayItem(newFolderItem, 0)
+        
+        // Store in temporary items
+        temporaryItems["new_folder"] = displayItem
+        currentItems.add(0, displayItem)
+        displayItems = currentItems
+        notifyItemInserted(0)
+    }
 
     override fun getItemViewType(position: Int): Int {
         // Safety check to prevent crashes if list changes
@@ -208,13 +287,22 @@ class TodoAdapter(
             return TYPE_TASK // Default fallback
         }
         
+        val itemId = displayItems[position].item.id
+        
         return when {
-            displayItems[position].item is TodoItem.Folder -> TYPE_FOLDER
+            displayItems[position].item is TodoItem.Folder -> {
+                // Check if it's a temporary editing folder
+                if (itemId == "new_folder" || temporaryItems.containsKey(itemId)) {
+                    TYPE_NEW_FOLDER
+                } else {
+                    TYPE_FOLDER
+                }
+            }
             displayItems[position].item is TodoItem.Task -> {
-                if (displayItems[position].item.id.startsWith("new_task_")) TYPE_NEW_TASK else TYPE_TASK
+                if (itemId.startsWith("new_task_") || temporaryItems.containsKey(itemId)) TYPE_NEW_TASK else TYPE_TASK
             }
             displayItems[position].item is TodoItem.Subtask -> {
-                if (displayItems[position].item.id.startsWith("new_subtask_")) TYPE_NEW_SUBTASK else TYPE_SUBTASK
+                if (itemId.startsWith("new_subtask_") || temporaryItems.containsKey(itemId)) TYPE_NEW_SUBTASK else TYPE_SUBTASK
             }
             else -> throw IllegalArgumentException("Unknown item type")
         }
@@ -247,6 +335,11 @@ class TodoAdapter(
                     .inflate(R.layout.item_new_task, parent, false)
                 NewSubtaskViewHolder(view)
             }
+            TYPE_NEW_FOLDER -> {
+                val view = LayoutInflater.from(parent.context)
+                    .inflate(R.layout.item_new_folder, parent, false)
+                NewFolderViewHolder(view)
+            }
             else -> throw IllegalArgumentException("Unknown view type: $viewType")
         }
     }
@@ -275,6 +368,9 @@ class TodoAdapter(
             }
             is NewSubtaskViewHolder -> {
                 holder.bind(displayItem.level, displayItem.parentFolderId ?: "", displayItem.parentTaskId ?: "", position)
+            }
+            is NewFolderViewHolder -> {
+                holder.bind(position)
             }
         }
     }
@@ -753,6 +849,93 @@ class TodoAdapter(
                         temporaryItems.remove(tempKey)
                         if (subtaskText.trim().isNotEmpty()) {
                             onNewSubtaskAdded(subtaskText.trim(), folderId, taskId)
+                        } else {
+                            // If empty, trigger refresh to remove the editing element
+                            onRefreshRequested()
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    inner class NewFolderViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
+        private val newFolderEditText: android.widget.EditText = itemView.findViewById(R.id.new_folder_hint)
+        private var isProcessing = false // Flag to prevent duplicate submissions
+
+        fun bind(position: Int) {
+            isProcessing = false // Reset flag when binding
+            // New folder should have same indentation as regular folders (level 0)
+            val rootLayout = itemView as LinearLayout
+            val defaultPadding = itemView.context.resources.getDimensionPixelSize(R.dimen.default_padding)
+            rootLayout.setPadding(
+                defaultPadding,
+                defaultPadding,
+                defaultPadding,
+                defaultPadding
+            )
+            
+            newFolderEditText.setText("")
+            newFolderEditText.hint = "Введите название папки"
+            
+            // Auto focus when this item is shown
+            newFolderEditText.post {
+                newFolderEditText.requestFocus()
+                val imm = itemView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                imm.showSoftInput(newFolderEditText, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+            }
+            
+            newFolderEditText.setOnEditorActionListener { _, actionId, _ ->
+                if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_DONE || 
+                    actionId == android.view.inputmethod.EditorInfo.IME_ACTION_GO) {
+                    if (isProcessing) {
+                        return@setOnEditorActionListener true // Already processing
+                    }
+                    
+                    isProcessing = true
+                    
+                    // Hide keyboard first
+                    val imm = itemView.context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                    imm.hideSoftInputFromWindow(newFolderEditText.windowToken, 0)
+                    
+                    // Clear focus to prevent onFocusChangeListener from firing
+                    newFolderEditText.clearFocus()
+                    
+                    val folderText = newFolderEditText.text.toString()
+                    val tempKey = "new_folder"
+                    
+                    // Remove temporary item before updating ViewModel
+                    temporaryItems.remove(tempKey)
+                    
+                    // Post to next frame to ensure RecyclerView is ready
+                    itemView.post {
+                        if (folderText.trim().isNotEmpty()) {
+                            onNewFolderAdded(folderText.trim())
+                        } else {
+                            // If empty, trigger refresh to remove the editing element
+                            onRefreshRequested()
+                        }
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+            
+            newFolderEditText.setOnFocusChangeListener { _, hasFocus ->
+                if (!hasFocus && !isProcessing) {
+                    // Only process if not already processing (to avoid duplicate calls)
+                    isProcessing = true
+                    
+                    val folderText = newFolderEditText.text.toString()
+                    val tempKey = "new_folder"
+                    
+                    // Post to next frame to avoid conflicts with RecyclerView updates
+                    itemView.post {
+                        // Remove temporary item - updateItems will handle the UI update
+                        temporaryItems.remove(tempKey)
+                        if (folderText.trim().isNotEmpty()) {
+                            onNewFolderAdded(folderText.trim())
                         } else {
                             // If empty, trigger refresh to remove the editing element
                             onRefreshRequested()
