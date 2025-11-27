@@ -1,6 +1,6 @@
 services:
   backend:
-    build: server
+    build: .
     restart: always
     depends_on:
       db:
